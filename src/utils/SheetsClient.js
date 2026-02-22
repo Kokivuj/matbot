@@ -1,4 +1,4 @@
-const SHEETS_URL = "SHEETS_WEB_APP_URL"; // Placeholder
+const SHEETS_URL = import.meta.env.VITE_SHEETS_URL;
 
 export const fetchTasks = async () => {
     try {

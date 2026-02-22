@@ -1,4 +1,4 @@
-const GROQ_API_KEY = "GROQ_API_KEY"; // Placeholder
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
 const MODELS = {
     primary_vision: "meta-llama/llama-4-scout-17b-16e-instruct",
