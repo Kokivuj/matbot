@@ -9,7 +9,7 @@ import {
     RefreshCw,
     X,
     ChevronRight,
-    Robot
+    Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { chatWithGroq, extractTextFromFile } from './utils/GroqClient';
@@ -167,7 +167,7 @@ const App = () => {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ padding: '8px', background: 'rgba(255,255,255,0.2)', borderRadius: '12px' }}>
-                        <Robot size={28} />
+                        <Bot size={28} />
                     </div>
                     <div>
                         <h1 style={{ fontSize: '24px', fontWeight: '900', letterSpacing: '-0.5px' }}>MatBot</h1>
