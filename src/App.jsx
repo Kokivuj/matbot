@@ -31,6 +31,7 @@ const App = () => {
     const [manualMode, setManualMode] = useState(false);
     const [tasks, setTasks] = useState([]);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [novZadatakToast, setNovZadatakToast] = useState(false);
 
     const chatEndRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -153,6 +154,27 @@ const App = () => {
         if (activeTab === 'baza') loadBaza();
     }, [activeTab]);
 
+    const handleNoviZadatak = async () => {
+        setInputValue('');
+        setManualMode(false);
+        setLoadingStatus('');
+
+        // Refresh task list in background
+        await loadBaza();
+
+        // Add assistant message
+        const assistantMessage = {
+            id: Date.now(),
+            role: 'assistant',
+            content: "Super! 🎉 Spreman sam za novi zadatak! Koji sledeći zadatak te muči? 💪"
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+
+        // Show toast
+        setNovZadatakToast(true);
+        setTimeout(() => setNovZadatakToast(false), 2500);
+    };
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Header */}
@@ -201,6 +223,33 @@ const App = () => {
                         </button>
                     ))}
                 </div>
+
+                <div style={{ position: 'absolute', right: '20px', top: '20px' }}>
+                    <button
+                        onClick={handleNoviZadatak}
+                        disabled={isLoading}
+                        style={{
+                            padding: '10px 18px',
+                            borderRadius: '14px',
+                            border: 'none',
+                            background: 'rgba(255, 255, 255, 0.2)',
+                            color: 'white',
+                            fontWeight: '800',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            transition: 'all 0.3s ease',
+                            backdropFilter: 'blur(10px)',
+                            boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
+                    >
+                        <span>➕</span> Novi zadatak
+                    </button>
+                </div>
             </header>
 
             {/* Tabs */}
@@ -240,6 +289,31 @@ const App = () => {
 
             {/* Main Content Area */}
             <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                <AnimatePresence>
+                    {novZadatakToast && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -20, x: '-50%' }}
+                            animate={{ opacity: 1, y: 0, x: '-50%' }}
+                            exit={{ opacity: 0, y: -20, x: '-50%' }}
+                            style={{
+                                position: 'absolute',
+                                top: '20px',
+                                left: '50%',
+                                background: 'white',
+                                color: '#764ba2',
+                                padding: '12px 24px',
+                                borderRadius: '16px',
+                                fontWeight: '800',
+                                fontSize: '14px',
+                                zIndex: 1000,
+                                boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+                                pointerEvents: 'none'
+                            }}
+                        >
+                            ✅ Baza osvežena — spreman za novi zadatak!
+                        </motion.div>
+                    )}
+                </AnimatePresence>
                 <AnimatePresence mode="wait">
                     {activeTab === 'chat' && (
                         <motion.div
