@@ -1,0 +1,606 @@
+﻿<!DOCTYPE html>
+<html lang="sr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MatBot - Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="./config.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* FIX: corrected from justifyContent */
+            padding: 16px;
+            font-family: 'Nunito', 'Segoe UI', sans-serif;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 3px;
+        }
+
+        #root {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .msg-bubble {
+            animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes popIn {
+            from {
+                opacity: 0;
+                transform: scale(0.8) translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5) !important;
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        .tab-btn {
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .upload-area {
+            transition: all 0.2s;
+        }
+
+        .upload-area:hover {
+            transform: scale(1.02);
+        }
+
+        .task-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15) !important;
+        }
+
+        .task-card {
+            transition: all 0.2s;
+        }
+
+        textarea:focus {
+            outline: none;
+        }
+
+        .bounce {
+            animation: bounce 1s infinite;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-5px);
+            }
+        }
+
+        .dot-typing {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .dot-typing span {
+            width: 8px;
+            height: 8px;
+            background: #764ba2;
+            border-radius: 50%;
+            animation: dotBounce 1.2s infinite;
+        }
+
+        .dot-typing span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .dot-typing span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes dotBounce {
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0.8);
+                opacity: 0.5;
+            }
+
+            40% {
+                transform: scale(1.2);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Global error handling for easier debugging
+        window.onerror = function (msg, url, line) {
+            alert("Sistemska greska: " + msg + "\nLinija: " + line);
+            return false;
+        };
+
+        const { useState, useRef, useEffect } = React;
+
+        const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+
+        const SYSTEM_PROMPT = `Ti si MatBot, veseli i strpljiv matematički asistent za decu osnovne škole (4, 5 i 6 razred).
+        Uvek govoriš srpskim jezikom. Objašnjavaš korak po korak, jednostavnim rečima koje dete od 10 godina može da razume.
+        Kada rešavaš zadatak, uvek pohvališ dete i ohrabruješ ga. Koristiš emoji-je da bude zabavnije.
+        Nikada ne daješ samo odgovor - uvek objašnjavaš HOW i ZAŠTO.
+        Kada ti se da tekst zadatka, analiziraj ga pažljivo i budi spreman da odgovaraš na pitanja.
+        Ako zadatak ima više delova, rešavaj jedan po jedan.`;
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(",")[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function extractWithVision(base64, mimeType) {
+            const res = await fetch(GROQ_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${GROQ_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+                    messages: [{
+                        role: "user",
+                        content: [
+                            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+                            { type: "text", text: "Izvuci SVE matematičke zadatke iz ove slike. Za svaki zadatak napiši: ZADATAK [broj]: [tekst zadatka]. Budi precizan i ne spajaj različite zadatke." }
+                        ]
+                    }],
+                    max_tokens: 2000,
+                }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message || "Vision model greška");
+            return data.choices?.[0]?.message?.content || "";
+        }
+
+        async function extractWithFallbackVision(base64, mimeType) {
+            const res = await fetch(GROQ_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${GROQ_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    model: "llama-3.2-11b-vision-preview",
+                    messages: [{
+                        role: "user",
+                        content: [
+                            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+                            { type: "text", text: "Izvuci SVE matematičke zadatke iz ove slike. Za svaki zadatak napiši: ZADATAK [broj]: [tekst zadatka]. Budi precizan i ne spajaj različite zadatke." }
+                        ]
+                    }],
+                    max_tokens: 2000,
+                }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message || "Fallback vision greška");
+            return data.choices?.[0]?.message?.content || "";
+        }
+
+        async function extractTextFromFile(file, onStatusUpdate) {
+            const base64 = await fileToBase64(file);
+            const isImage = file.type.startsWith("image/");
+
+            if (isImage) {
+                try {
+                    onStatusUpdate?.("🔍 Analiziram sliku (model 1)...");
+                    const result = await extractWithVision(base64, file.type);
+                    if (result && result.length > 10) return result;
+                    throw new Error("Prazan odgovor");
+                } catch (err1) {
+                    try {
+                        onStatusUpdate?.("🔄 Prelazim na rezervni model...");
+                        const result = await extractWithFallbackVision(base64, file.type);
+                        if (result && result.length > 10) return result;
+                        throw new Error("Prazan odgovor");
+                    } catch (err2) {
+                        onStatusUpdate?.("manual");
+                        return null;
+                    }
+                }
+            }
+
+            try {
+                onStatusUpdate?.("📄 Čitam PDF...");
+                const res = await fetch(GROQ_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_API_KEY}` },
+                    body: JSON.stringify({
+                        model: "llama-3.3-70b-versatile",
+                        messages: [{ role: "user", content: `Korisnik je uploadovao PDF sa matematičkim zadacima. Na osnovu naziva fajla "${file.name}" i veličine ${Math.round(file.size / 1024)}KB, pretpostavi da sadrži matematičke zadatke i zamoli korisnika da ih prepiše kao tekst. Odgovori na srpskom.` }],
+                        max_tokens: 500,
+                    }),
+                });
+                const data = await res.json();
+                onStatusUpdate?.("manual_pdf");
+                return null;
+            } catch {
+                onStatusUpdate?.("manual_pdf");
+                return null;
+            }
+        }
+
+        async function saveToSheets(zadatak, resenje, objasnjenje, razred, tip) {
+            try {
+                await fetch(SHEETS_URL, {
+                    method: "POST",
+                    mode: "no-cors",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        action: "add",
+                        razred,
+                        tip,
+                        zadatak,
+                        resenje,
+                        objasnjenje,
+                        status: "aktivan",
+                    }),
+                });
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        async function getFromSheets() {
+            try {
+                const res = await fetch(SHEETS_URL);
+                return await res.json();
+            } catch {
+                return [];
+            }
+        }
+
+        async function chatWithGroq(messages) {
+            try {
+                const res = await fetch(GROQ_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${GROQ_API_KEY}`,
+                    },
+                    body: JSON.stringify({
+                        model: "llama-3.3-70b-versatile",
+                        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+                        max_tokens: 1500,
+                        temperature: 0.7,
+                    }),
+                });
+                const data = await res.json();
+                return data.choices?.[0]?.message?.content || "Ups, desila se greska. Pokusaj ponovo!";
+            } catch (e) {
+                return "Greska: " + e.message;
+            }
+        }
+
+        function MathChatbot() {
+            const [messages, setMessages] = useState([
+                {
+                    role: "assistant",
+                    content: "Zdravo! 👋 Ja sam **MatBot**, tvoj matematički pomoćnik! 🤖\n\nMogu da ti pomognem sa zadacima iz matematike za 4, 5 i 6 razred.\n\n**Šta mogu da uradim:**\n✏️ Dodaj zadatak kao tekst\n🖼️ Pošalji sliku zadatka\n📄 Uploaduj PDF sa zadacima\n📚 Analiziraj zadatak iz baze (npr: *\"zadatak iz reda 3\"*)\n\nHajde da počnemo! Koji zadatak te muči? 😊",
+                },
+            ]);
+            const [input, setInput] = useState("");
+            const [loading, setLoading] = useState(false);
+            const [loadingStatus, setLoadingStatus] = useState("");
+            const [razred, setRazred] = useState("5");
+            const [activeTab, setActiveTab] = useState("chat");
+            const [savedTasks, setSavedTasks] = useState([]);
+            const [loadingSheets, setLoadingSheets] = useState(false);
+            const [dragOver, setDragOver] = useState(false);
+            const [manualMode, setManualMode] = useState(false);
+            const [manualType, setManualType] = useState("slika");
+            const [novZadatakToast, setNovZadatakToast] = useState(false);
+            const fileRef = useRef(null);
+            const messagesEndRef = useRef(null);
+            const textareaRef = useRef(null);
+
+            useEffect(() => {
+                if (messagesEndRef.current) {
+                    messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+                }
+            }, [messages]);
+
+            const addMessage = (role, content) => {
+                setMessages((prev) => [...prev, { role, content }]);
+            };
+
+            const processExtractedText = async (extractedText, fileType) => {
+                const taskMatches = extractedText.match(/ZADATAK\s*\d+\s*:([\s\S]*?)(?=ZADATAK\s*\d+\s*:|$)/gi);
+                if (taskMatches && taskMatches.length > 1) {
+                    addMessage("assistant", `🔍 Pronasao sam **${taskMatches.length} zadatka**! Obrađujem svaki posebno...\n\n${taskMatches.map((t, i) => `**${i + 1}.** ${t.replace(/ZADATAK\s*\d+\s*:/i, "").trim().substring(0, 80)}...`).join("\n")}`);
+                    for (let i = 0; i < taskMatches.length; i++) {
+                        const taskText = taskMatches[i].replace(/ZADATAK\s*\d+\s*:/i, "").trim();
+                        const solution = await chatWithGroq([{ role: "user", content: `Resi ovaj matematicki zadatak za ${razred}. razred korak po korak:\n\n${taskText}` }]);
+                        await saveToSheets(taskText, solution.substring(0, 200), solution, razred, fileType);
+                        addMessage("assistant", `✅ **Zadatak ${i + 1}** sacuvan u bazu!\n\n${solution}`);
+                    }
+                } else {
+                    const taskText = extractedText.replace(/ZADATAK\s*\d+\s*:/i, "").trim() || extractedText;
+                    const solution = await chatWithGroq([{ role: "user", content: `Resi ovaj matematicki zadatak za ${razred}. razred korak po korak:\n\n${taskText}` }]);
+                    await saveToSheets(taskText, solution.substring(0, 200), solution, razred, fileType);
+                    addMessage("assistant", `✅ Zadatak analiziran i sacuvan u bazu!\n\n${solution}`);
+                }
+            };
+
+            const handleNoviZadatak = async () => {
+                // Resetuje samo input i manual mode — chat i Sheets ostaju netaknuti
+                setInput("");
+                setManualMode(false);
+                setLoadingStatus("");
+
+                // Osvežava Sheets u pozadini bez da dira podatke
+                const tasks = await getFromSheets();
+                setSavedTasks(Array.isArray(tasks) ? tasks.filter((t) => t["Originalni zadatak"]) : []);
+
+                // Dodaje poruku u chat da je spreman za novi zadatak
+                addMessage("assistant", "Super! 🎉 Spreman sam za novi zadatak! Koji sledeći zadatak te muči? 💪");
+
+                // Toast notifikacija
+                setNovZadatakToast(true);
+                setTimeout(() => setNovZadatakToast(false), 2500);
+            };
+
+            const handleFileUpload = async (file) => {
+                if (!file) return;
+                setLoading(true);
+                setLoadingStatus("🔍 Pripremam fajl...");
+                addMessage("user", `📎 Uploadovao sam fajl: **${file.name}**`);
+                const fileType = file.type.startsWith("image/") ? "slika" : "pdf";
+
+                try {
+                    const extractedText = await extractTextFromFile(file, (status) => {
+                        if (status === "manual" || status === "manual_pdf") {
+                            setManualType(fileType);
+                            setManualMode(true);
+                        } else {
+                            setLoadingStatus(status);
+                        }
+                    });
+
+                    if (extractedText === null) {
+                        addMessage("assistant",
+                            fileType === "slika"
+                                ? `😅 Nisam uspeo da automatski procitam sliku.\n\n✏️ **Mozeš mi prepisati tekst zadatka?**`
+                                : `😅 PDF fajlovi su malo teži za citanje direktno.\n\n✏️ **Prepiši mi tekst zadataka iz PDF-a**.`
+                        );
+                        setActiveTab("chat");
+                    } else {
+                        await processExtractedText(extractedText, fileType);
+                    }
+                } catch (err) {
+                    addMessage("assistant", "😅 Ups! Desila se greska.");
+                }
+
+                setLoading(false);
+                setLoadingStatus("");
+            };
+
+            const handleSend = async () => {
+                const text = input.trim();
+                if (!text || loading) return;
+                setInput("");
+                setLoading(true);
+                addMessage("user", text);
+
+                try {
+                    const redMatch = text.match(/red\s*(\d+)/i) || text.match(/zadatak.*?(\d+)/i);
+
+                    if (redMatch && (text.toLowerCase().includes("red") || text.toLowerCase().includes("baza") || text.toLowerCase().includes("analiziraj"))) {
+                        const rowNum = parseInt(redMatch[1]);
+                        addMessage("assistant", `🔍 Trazim zadatak iz reda **${rowNum}** u bazi...`);
+                        const allTasks = await getFromSheets();
+                        const task = allTasks.find((t) => t.rowIndex === rowNum + 1 || parseInt(t.ID) === rowNum);
+
+                        if (task) {
+                            const contextMessage = `Evo zadatka iz baze (red ${rowNum}):\n\nZADATAK: ${task["Originalni zadatak"]}\n\nPrethodna resenja: ${task["AI rešenje"]}`;
+                            const response = await chatWithGroq([{ role: "user", content: contextMessage }]);
+                            addMessage("assistant", `📚 Pronasao sam zadatak!\n\n${response}`);
+                        } else {
+                            addMessage("assistant", `😕 Nisam pronasao zadatak u redu **${rowNum}**.`);
+                        }
+                    } else if (text.toLowerCase().includes("sacuvaj")) {
+                        const response = await chatWithGroq(messages.concat({ role: "user", content: text }));
+                        await saveToSheets(text, response.substring(0, 200), response, razred, "tekst");
+                        addMessage("assistant", `✅ Sacuvano u bazu!\n\n${response}`);
+                    } else {
+                        const response = await chatWithGroq(messages.slice(-10).concat({ role: "user", content: text }));
+                        if (text.length > 20 && (text.match(/\d/) || text.toLowerCase().includes("zadatak"))) {
+                            await saveToSheets(text, response.substring(0, 200), response, razred, "tekst");
+                            addMessage("assistant", response + "\n\n💾 *Automatski sacuvano!*");
+                        } else {
+                            addMessage("assistant", response);
+                        }
+                    }
+                } catch (err) {
+                    addMessage("assistant", "😅 Greska!");
+                }
+                setLoading(false);
+            };
+
+            const loadSavedTasks = async () => {
+                setLoadingSheets(true);
+                const tasks = await getFromSheets();
+                setSavedTasks(Array.isArray(tasks) ? tasks.filter((t) => t["Originalni zadatak"]) : []);
+                setLoadingSheets(false);
+            };
+
+            useEffect(() => {
+                if (activeTab === "baza") loadSavedTasks();
+            }, [activeTab]);
+
+            const formatMessage = (content) => {
+                return content
+                    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+                    .replace(/\n/g, "<br/>");
+            };
+
+            return (
+                <div style={{
+                    width: "100%", maxWidth: "780px", background: "rgba(255,255,255,0.95)",
+                    borderRadius: "28px", overflow: "hidden", boxShadow: "0 30px 80px rgba(0,0,0,0.3)",
+                    display: "flex", flexDirection: "column", height: "90vh", maxHeight: "820px",
+                    position: "relative"
+                }}>
+                    {novZadatakToast && (
+                        <div style={{
+                            position: "absolute", top: "90px", left: "50%",
+                            transform: "translateX(-50%)",
+                            background: "linear-gradient(135deg, #667eea, #764ba2)",
+                            color: "white", padding: "10px 20px", borderRadius: "12px",
+                            fontWeight: 800, fontSize: "14px", zIndex: 200,
+                            boxShadow: "0 8px 25px rgba(102,126,234,0.5)",
+                            animation: "popIn 0.3s cubic-bezier(0.34,1.56,0.64,1)",
+                            whiteSpace: "nowrap",
+                        }}>
+                            ✅ Baza osvežena — spreman za novi zadatak!
+                        </div>
+                    )}
+                    <div style={{ background: "linear-gradient(135deg, #667eea, #764ba2)", padding: "20px 24px", display: "flex", alignItems: "center", gap: "14px" }}>
+                        <div style={{ width: "52px", height: "52px", background: "rgba(255,255,255,0.25)", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "26px" }}>🤖</div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ color: "white", fontSize: "22px", fontWeight: 900 }}>MatBot</div>
+                            <div style={{ color: "rgba(255,255,255,0.8)", fontSize: "13px" }}>Matematicki pomocnik  🎓</div>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <button
+                                onClick={handleNoviZadatak}
+                                disabled={loading}
+                                title="Novi zadatak — osvežava bazu"
+                                style={{
+                                    display: "flex", alignItems: "center", gap: "6px",
+                                    padding: "8px 14px", borderRadius: "12px",
+                                    border: "2px solid rgba(255,255,255,0.4)",
+                                    background: "rgba(255,255,255,0.2)", color: "white",
+                                    fontWeight: 800, fontSize: "13px", cursor: "pointer",
+                                    fontFamily: "inherit", transition: "all 0.2s", flexShrink: 0,
+                                    opacity: loading ? 0.5 : 1,
+                                }}
+                            >
+                                <span style={{ fontSize: "16px" }}>➕</span>
+                                Novi zadatak
+                            </button>
+
+                            {["4", "5", "6"].map((r) => (
+                                <button key={r} onClick={() => setRazred(r)} style={{ width: "36px", height: "36px", borderRadius: "10px", border: "none", background: razred === r ? "white" : "rgba(255,255,255,0.2)", color: razred === r ? "#764ba2" : "white", fontWeight: 900, cursor: "pointer" }}>{r}</button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div style={{ display: "flex", background: "#f8f5ff", padding: "8px", gap: "6px", borderBottom: "2px solid #ede9fe" }}>
+                        {[{ id: "chat", label: "💬 Chat" }, { id: "upload", label: "📤 Dodaj" }, { id: "baza", label: "📚 Baza" }].map((tab) => (
+                            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, padding: "10px", borderRadius: "12px", border: "none", background: activeTab === tab.id ? "linear-gradient(135deg, #667eea, #764ba2)" : "transparent", color: activeTab === tab.id ? "white" : "#764ba2", fontWeight: 800, cursor: "pointer" }}>{tab.label}</button>
+                        ))}
+                    </div>
+
+                    {activeTab === "chat" && (
+                        <>
+                            <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+                                {messages.map((msg, i) => (
+                                    <div key={i} className="msg-bubble" style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", gap: "10px", alignItems: "flex-end" }}>
+                                        {msg.role === "assistant" && <div style={{ width: "36px", height: "36px", borderRadius: "12px", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>🤖</div>}
+                                        <div style={{ maxWidth: "75%", padding: "14px 18px", borderRadius: "20px", background: msg.role === "user" ? "#764ba2" : "white", color: msg.role === "user" ? "white" : "black", boxShadow: "0 4px 15px rgba(0,0,0,0.05)" }} dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }} />
+                                    </div>
+                                ))}
+                                {loading && <div className="dot-typing"><span></span><span></span><span></span></div>}
+                                <div ref={messagesEndRef}></div>
+                            </div>
+                            <div style={{ padding: "16px 20px", background: "white", display: "flex", gap: "10px" }}>
+                                <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder="Napisi zadatak..." style={{ flex: 1, padding: "12px", borderRadius: "12px", border: "2px solid #ede9fe", resize: "none" }} />
+                                <button onClick={handleSend} style={{ padding: "0 20px", borderRadius: "12px", border: "none", background: "#764ba2", color: "white", fontWeight: 800, cursor: "pointer" }}>🚀</button>
+                            </div>
+                        </>
+                    )}
+
+                    {activeTab === "upload" && (
+                        <div style={{ flex: 1, padding: "40px", textAlign: "center" }}>
+                            <h2>📤 Dodaj zadatak</h2>
+                            <div onClick={() => fileRef.current.click()} style={{ border: "3px dashed #c4b5fd", borderRadius: "20px", padding: "60px", margin: "20px 0", cursor: "pointer" }}>
+                                Klikni ili prevuci fajl
+                            </div>
+                            <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => handleFileUpload(e.target.files[0])} />
+                        </div>
+                    )}
+
+                    {activeTab === "baza" && (
+                        <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
+                            <button onClick={loadSavedTasks} style={{ width: "100%", padding: "10px", borderRadius: "10px", background: "#764ba2", color: "white", border: "none", marginBottom: "20px" }}>Osveži</button>
+                            {savedTasks.map((t, i) => (
+                                <div key={i} style={{ background: "white", padding: "15px", borderRadius: "15px", marginBottom: "10px", border: "1px solid #eee" }}>
+                                    {t["Originalni zadatak"]}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<MathChatbot />);
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,80 @@
+const GROQ_API_KEY = "GROQ_API_KEY"; // Placeholder
+
+const MODELS = {
+    primary_vision: "meta-llama/llama-4-scout-17b-16e-instruct",
+    fallback_vision: "llama-3.2-11b-vision-preview",
+    text_chat: "llama-3.3-70b-versatile"
+};
+
+export const chatWithGroq = async (messages, model = MODELS.text_chat) => {
+    try {
+        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${GROQ_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model,
+                messages,
+                temperature: 0.7,
+                max_tokens: 1024
+            })
+        });
+
+        if (!response.ok) throw new Error("Groq API error");
+        const data = await response.json();
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error("Groq Chat Error:", error);
+        throw error;
+    }
+};
+
+export const extractTextFromFile = async (base64File, onProgress) => {
+    // Level 1: Primary Vision Model
+    onProgress("🔍 Analiziram sliku (model 1)...");
+    try {
+        const res = await visionRequest(base64File, MODELS.primary_vision);
+        return res;
+    } catch (e) {
+        console.warn("Level 1 failed, trying Level 2...");
+
+        // Level 2: Fallback Vision Model
+        onProgress("🔄 Prelazim na rezervni model...");
+        try {
+            const res = await visionRequest(base64File, MODELS.fallback_vision);
+            return res;
+        } catch (e2) {
+            console.error("Level 2 failed");
+            // Level 3 is manual mode handled in UI
+            throw new Error("VISION_FAILED");
+        }
+    }
+};
+
+const visionRequest = async (base64File, model) => {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${GROQ_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            model,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "Prepiši sav tekst sa ove slike/PDF-a koji se odnosi na matematičke zadatke. Ako ima više zadataka, odvoj ih sa 'ZADATAK [broj]:'." },
+                        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64File}` } }
+                    ]
+                }
+            ]
+        })
+    });
+
+    if (!response.ok) throw new Error("Vision Request Failed");
+    const data = await response.json();
+    return data.choices[0].message.content;
+};
