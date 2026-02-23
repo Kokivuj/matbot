@@ -47,6 +47,7 @@ const App = () => {
     const handleSend = async (text = inputValue) => {
         if (!text.trim() || isLoading) return;
 
+        setManualMode(false);
         const userMessage = { id: Date.now(), role: 'user', content: text };
         setMessages(prev => [...prev, userMessage]);
         setInputValue('');
