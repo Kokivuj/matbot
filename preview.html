@@ -190,7 +190,7 @@
             });
         }
 
-        async function extractWithVision(base64, mimeType) {
+        async function extractWithVision(dataUrl) {
             const res = await fetch(GROQ_URL, {
                 method: "POST",
                 headers: {
@@ -198,11 +198,11 @@
                     Authorization: `Bearer ${GROQ_API_KEY}`,
                 },
                 body: JSON.stringify({
-                    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+                    model: "llama-3.2-90b-vision-preview",
                     messages: [{
                         role: "user",
                         content: [
-                            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+                            { type: "image_url", image_url: { url: dataUrl } },
                             { type: "text", text: "Izvuci SVE matematičke zadatke iz ove slike. Za svaki zadatak napiši: ZADATAK [broj]: [tekst zadatka]. Budi precizan i ne spajaj različite zadatke." }
                         ]
                     }],
@@ -210,11 +210,14 @@
                 }),
             });
             const data = await res.json();
-            if (data.error) throw new Error(data.error.message || "Vision model greška");
+            if (data.error) {
+                console.error("Vision Error:", data.error);
+                throw new Error(data.error.message || "Vision model greška");
+            }
             return data.choices?.[0]?.message?.content || "";
         }
 
-        async function extractWithFallbackVision(base64, mimeType) {
+        async function extractWithFallbackVision(dataUrl) {
             const res = await fetch(GROQ_URL, {
                 method: "POST",
                 headers: {
@@ -226,7 +229,7 @@
                     messages: [{
                         role: "user",
                         content: [
-                            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+                            { type: "image_url", image_url: { url: dataUrl } },
                             { type: "text", text: "Izvuci SVE matematičke zadatke iz ove slike. Za svaki zadatak napiši: ZADATAK [broj]: [tekst zadatka]. Budi precizan i ne spajaj različite zadatke." }
                         ]
                     }],
@@ -234,54 +237,48 @@
                 }),
             });
             const data = await res.json();
-            if (data.error) throw new Error(data.error.message || "Fallback vision greška");
+            if (data.error) {
+                console.error("Fallback Vision Error:", data.error);
+                throw new Error(data.error.message || "Fallback vision greška");
+            }
             return data.choices?.[0]?.message?.content || "";
         }
 
         async function extractTextFromFile(file, onStatusUpdate) {
-            const base64 = await fileToBase64(file);
-            const isImage = file.type.startsWith("image/");
+            const reader = new FileReader();
+            return new Promise((resolve, reject) => {
+                reader.onload = async (event) => {
+                    const dataUrl = event.target.result;
+                    const isImage = file.type.startsWith("image/");
 
-            if (isImage) {
-                try {
-                    onStatusUpdate?.("🔍 Analiziram sliku (model 1)...");
-                    const result = await extractWithVision(base64, file.type);
-                    if (result && result.length > 10) return result;
-                    throw new Error("Prazan odgovor");
-                } catch (err1) {
-                    try {
-                        onStatusUpdate?.("🔄 Prelazim na rezervni model...");
-                        const result = await extractWithFallbackVision(base64, file.type);
-                        if (result && result.length > 10) return result;
-                        throw new Error("Prazan odgovor");
-                    } catch (err2) {
-                        onStatusUpdate?.("manual");
-                        return null;
+                    if (isImage) {
+                        try {
+                            onStatusUpdate?.("🔍 Analiziram sliku (model 1)...");
+                            const result = await extractWithVision(dataUrl);
+                            if (result && result.length > 10) resolve(result);
+                            else throw new Error("Prazan odgovor");
+                        } catch (err1) {
+                            try {
+                                onStatusUpdate?.("🔄 Prelazim na rezervni model...");
+                                const result = await extractWithFallbackVision(dataUrl);
+                                if (result && result.length > 10) resolve(result);
+                                else throw new Error("Prazan odgovor");
+                            } catch (err2) {
+                                onStatusUpdate?.("manual");
+                                resolve(null);
+                            }
+                        }
+                    } else {
+                        onStatusUpdate?.("manual_pdf");
+                        resolve(null);
                     }
-                }
-            }
-
-            try {
-                onStatusUpdate?.("📄 Čitam PDF...");
-                const res = await fetch(GROQ_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_API_KEY}` },
-                    body: JSON.stringify({
-                        model: "llama-3.3-70b-versatile",
-                        messages: [{ role: "user", content: `Korisnik je uploadovao PDF sa matematičkim zadacima. Na osnovu naziva fajla "${file.name}" i veličine ${Math.round(file.size / 1024)}KB, pretpostavi da sadrži matematičke zadatke i zamoli korisnika da ih prepiše kao tekst. Odgovori na srpskom.` }],
-                        max_tokens: 500,
-                    }),
-                });
-                const data = await res.json();
-                onStatusUpdate?.("manual_pdf");
-                return null;
-            } catch {
-                onStatusUpdate?.("manual_pdf");
-                return null;
-            }
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
         }
 
-        async function saveToSheets(zadatak, resenje, objasnjenje, razred, tip) {
+        async function saveToSheets(taskData) {
             try {
                 await fetch(SHEETS_URL, {
                     method: "POST",
@@ -289,12 +286,7 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         action: "add",
-                        razred,
-                        tip,
-                        zadatak,
-                        resenje,
-                        objasnjenje,
-                        status: "aktivan",
+                        ...taskData
                     }),
                 });
                 return true;
@@ -373,15 +365,61 @@
                     for (let i = 0; i < taskMatches.length; i++) {
                         const taskText = taskMatches[i].replace(/ZADATAK\s*\d+\s*:/i, "").trim();
                         const solution = await chatWithGroq([{ role: "user", content: `Resi ovaj matematicki zadatak za ${razred}. razred korak po korak:\n\n${taskText}` }]);
-                        await saveToSheets(taskText, solution.substring(0, 200), solution, razred, fileType);
+                        await saveToSheets({
+                            datum: new Date().toLocaleDateString('sr-RS'),
+                            razred,
+                            tip: fileType,
+                            zadatak: taskText,
+                            resenje: solution.substring(0, 200),
+                            objasnjenje: solution,
+                            status: "aktivan"
+                        });
                         addMessage("assistant", `✅ **Zadatak ${i + 1}** sacuvan u bazu!\n\n${solution}`);
                     }
                 } else {
                     const taskText = extractedText.replace(/ZADATAK\s*\d+\s*:/i, "").trim() || extractedText;
                     const solution = await chatWithGroq([{ role: "user", content: `Resi ovaj matematicki zadatak za ${razred}. razred korak po korak:\n\n${taskText}` }]);
-                    await saveToSheets(taskText, solution.substring(0, 200), solution, razred, fileType);
+                    await saveToSheets({
+                        datum: new Date().toLocaleDateString('sr-RS'),
+                        razred,
+                        tip: fileType,
+                        zadatak: taskText,
+                        resenje: solution.substring(0, 200),
+                        objasnjenje: solution,
+                        status: "aktivan"
+                    });
                     addMessage("assistant", `✅ Zadatak analiziran i sacuvan u bazu!\n\n${solution}`);
                 }
+            };
+
+            const handleManualSave = async (msg) => {
+                if (msg.isSaved) return;
+
+                // Find user query
+                const msgIndex = messages.findIndex(m => m === msg);
+                const userQuery = msgIndex > 0 ? messages[msgIndex - 1].content : "Nepoznato";
+
+                setLoading(true);
+                setLoadingStatus('Čuvam u bazu...');
+
+                const taskData = {
+                    datum: new Date().toLocaleDateString('sr-RS'),
+                    razred,
+                    tip: 'ručno',
+                    zadatak: userQuery,
+                    resenje: msg.content.substring(0, 200),
+                    objasnjenje: msg.content,
+                    status: 'sačuvano'
+                };
+
+                const success = await saveToSheets(taskData);
+                if (success) {
+                    setMessages(prev => prev.map(m => m === msg ? { ...m, isSaved: true } : m));
+                    setNovZadatakToast(true);
+                    setTimeout(() => setNovZadatakToast(false), 2000);
+                }
+                setLoading(false);
+                setLoadingStatus('');
             };
 
             const handleNoviZadatak = async () => {
@@ -561,7 +599,32 @@
                                 {messages.map((msg, i) => (
                                     <div key={i} className="msg-bubble" style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", gap: "10px", alignItems: "flex-end" }}>
                                         {msg.role === "assistant" && <div style={{ width: "36px", height: "36px", borderRadius: "12px", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>🤖</div>}
-                                        <div style={{ maxWidth: "75%", padding: "14px 18px", borderRadius: "20px", background: msg.role === "user" ? "#764ba2" : "white", color: msg.role === "user" ? "white" : "black", boxShadow: "0 4px 15px rgba(0,0,0,0.05)" }} dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }} />
+                                        <div style={{ maxWidth: "75%", padding: "14px 18px", borderRadius: "20px", background: msg.role === "user" ? "#764ba2" : "white", color: msg.role === "user" ? "white" : "black", boxShadow: "0 4px 15px rgba(0,0,0,0.05)", position: 'relative' }}>
+                                            <div dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }} />
+                                            {msg.role === 'assistant' && i !== 0 && (
+                                                <button
+                                                    onClick={() => handleManualSave(msg)}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        right: '-45px',
+                                                        bottom: '0',
+                                                        width: '32px',
+                                                        height: '32px',
+                                                        borderRadius: '10px',
+                                                        background: msg.isSaved ? '#10b981' : 'white',
+                                                        color: msg.isSaved ? 'white' : '#764ba2',
+                                                        border: '1px solid #ddd',
+                                                        cursor: msg.isSaved ? 'default' : 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                                                    }}
+                                                >
+                                                    {msg.isSaved ? "✅" : "🗄️"}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 ))}
                                 {loading && <div className="dot-typing"><span></span><span></span><span></span></div>}
