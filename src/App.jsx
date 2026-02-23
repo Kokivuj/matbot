@@ -64,7 +64,8 @@ const App = () => {
 
             const assistantMessage = { id: Date.now() + 1, role: 'assistant', content: aiResponse };
 
-            // Auto-save logic
+            /* Auto-save logic removed as per user request for manual save */
+            /*
             if (text.length > 20 && (/\d/.test(text) || ['izračunaj', 'koliko', 'zadatak'].some(word => text.toLowerCase().includes(word)))) {
                 setLoadingStatus('Čuvam u bazu...');
                 const taskData = {
@@ -79,6 +80,7 @@ const App = () => {
                 await saveTask(taskData);
                 assistantMessage.content += "\n\n💾 Zadatak automatski sačuvan u bazu!";
             }
+            */
 
             setMessages(prev => [...prev, assistantMessage]);
         } catch (error) {
@@ -89,6 +91,39 @@ const App = () => {
             }]);
         } finally {
             setIsLoading(false);
+            setLoadingStatus('');
+        }
+    };
+
+    const handleManualSave = async (msg) => {
+        if (msg.isSaved) return;
+
+        // Find the user query that preceded this AI response
+        const msgIndex = messages.findIndex(m => m.id === msg.id);
+        const userQuery = msgIndex > 0 ? messages[msgIndex - 1].content : "Nepoznato";
+
+        setLoadingStatus('Čuvam u bazu...');
+        const taskData = {
+            Datum: new Date().toLocaleDateString('sr-RS'),
+            Razred: grade,
+            TipUnosa: 'ručno',
+            OriginalniZadatak: userQuery,
+            AIResenje: msg.content.substring(0, 200),
+            AIObjasnjenje: msg.content,
+            Status: 'sačuvano'
+        };
+
+        try {
+            await saveTask(taskData);
+            setMessages(prev => prev.map(m =>
+                m.id === msg.id ? { ...m, isSaved: true } : m
+            ));
+            // Show toast
+            setNovZadatakToast(true);
+            setTimeout(() => setNovZadatakToast(false), 2000);
+        } catch (error) {
+            console.error("Manual save failed:", error);
+        } finally {
             setLoadingStatus('');
         }
     };
@@ -336,6 +371,7 @@ const App = () => {
                                     )}
                                     <div style={{
                                         maxWidth: '80%',
+                                        position: 'relative',
                                         padding: '14px 18px',
                                         borderRadius: msg.role === 'user' ? '20px 20px 4px 20px' : '4px 20px 20px 20px',
                                         background: msg.role === 'user' ? 'var(--primary-gradient)' : 'white',
@@ -347,6 +383,32 @@ const App = () => {
                                         border: msg.role === 'assistant' ? '1px solid var(--border-light)' : 'none'
                                     }}>
                                         {msg.content}
+
+                                        {msg.role === 'assistant' && msg.id !== 1 && (
+                                            <button
+                                                onClick={() => handleManualSave(msg)}
+                                                title={msg.isSaved ? "Sačuvano u bazu" : "Sačuvaj u Google Sheets"}
+                                                style={{
+                                                    position: 'absolute',
+                                                    right: '-40px',
+                                                    bottom: '0',
+                                                    width: '32px',
+                                                    height: '32px',
+                                                    borderRadius: '10px',
+                                                    background: msg.isSaved ? '#10b981' : 'white',
+                                                    color: msg.isSaved ? 'white' : 'var(--text-accent)',
+                                                    border: '1px solid var(--border-light)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    cursor: msg.isSaved ? 'default' : 'pointer',
+                                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                                    transition: 'all 0.3s ease'
+                                                }}
+                                            >
+                                                {msg.isSaved ? "✅" : <Database size={16} />}
+                                            </button>
+                                        )}
                                     </div>
                                     {msg.role === 'user' && (
                                         <div style={{ width: '36px', height: '36px', borderRadius: '12px', background: 'var(--secondary-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
