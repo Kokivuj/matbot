@@ -138,9 +138,9 @@ const App = () => {
         try {
             const reader = new FileReader();
             reader.onload = async (event) => {
-                const base64 = event.target.result.split(',')[1];
+                const dataUrl = event.target.result;
                 try {
-                    const extractedText = await extractTextFromFile(base64, (status) => setLoadingStatus(status));
+                    const extractedText = await extractTextFromFile(dataUrl, (status) => setLoadingStatus(status));
 
                     // Regex for multiple tasks
                     const taskRegex = /ZADATAK\s*\d+\s*:([\s\S]*?)(?=ZADATAK\s*\d+\s*:|$)/gi;
