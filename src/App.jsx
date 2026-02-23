@@ -167,12 +167,14 @@ const App = () => {
                         role: 'assistant',
                         content: "😅 Nisam uspeo da automatski pročitam sliku. Možeš mi prepisati tekst zadatka?"
                     }]);
+                } finally {
+                    setIsLoading(false);
+                    setLoadingStatus('');
                 }
             };
             reader.readAsDataURL(file);
         } catch (error) {
             console.error(error);
-        } finally {
             setIsLoading(false);
             setLoadingStatus('');
         }
