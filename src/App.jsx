@@ -162,11 +162,20 @@ const App = () => {
                         await handleSend(extractedText);
                     }
                 } catch (visionError) {
+                    console.error("Vision Processing Error:", visionError);
                     setManualMode(true);
+
+                    let errorMsg = "😅 Nisam uspeo da automatski pročitam sliku. Možeš mi prepisati tekst zadatka?";
+                    if (visionError.message === "PDF_NOT_SUPPORTED") {
+                        errorMsg = "📄 Nažalost, još uvek ne mogu sam da čitam PDF. Možeš li prepisati ili slikati zadatak?";
+                    } else if (visionError.message.includes("413")) {
+                        errorMsg = "📏 Slika je prevelika. Probaj da pošalješ manji fajl ili samo slikaj zadatak!";
+                    }
+
                     setMessages(prev => [...prev, {
                         id: Date.now(),
                         role: 'assistant',
-                        content: "😅 Nisam uspeo da automatski pročitam sliku. Možeš mi prepisati tekst zadatka?"
+                        content: errorMsg
                     }]);
                 } finally {
                     setIsLoading(false);
