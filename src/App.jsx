@@ -620,7 +620,10 @@ const App = () => {
                     <div style={{ flex: 1, position: 'relative' }}>
                         <textarea
                             value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
+                            onChange={(e) => {
+                                setInputValue(e.target.value);
+                                if (manualMode) setManualMode(false);
+                            }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
