@@ -1,7 +1,11 @@
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
+if (!GROQ_API_KEY) {
+    console.warn("VITE_GROQ_API_KEY nije pronađen u environment varijablama!");
+}
+
 const MODELS = {
-    primary_vision: "meta-llama/llama-4-scout-17b-16e-instruct",
+    primary_vision: "llama-3.2-90b-vision-preview",
     fallback_vision: "llama-3.2-11b-vision-preview",
     text_chat: "llama-3.3-70b-versatile"
 };
