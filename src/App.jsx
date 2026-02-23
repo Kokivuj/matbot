@@ -47,7 +47,6 @@ const App = () => {
     const handleSend = async (text = inputValue) => {
         if (!text.trim() || isLoading) return;
 
-        setManualMode(false);
         const userMessage = { id: Date.now(), role: 'user', content: text };
         setMessages(prev => [...prev, userMessage]);
         setInputValue('');
@@ -133,8 +132,23 @@ const App = () => {
         const file = e.target.files[0];
         if (!file) return;
 
+        // Reset input for same file upload
+        e.target.value = null;
+
         setIsLoading(true);
         setActiveTab('chat');
+
+        // Check if PDF
+        if (file.type === 'application/pdf') {
+            setMessages(prev => [...prev, {
+                id: Date.now(),
+                role: 'assistant',
+                content: "📄 Primećujem da si poslao PDF dokument. MatBot trenutno može automatski da čita samo slike (JPG, PNG). \n\nMožeš li mi prepisati zadatak ovde u chat, ili poslati sliku (screenshot) zadatka? 😊"
+            }]);
+            setManualMode(true);
+            setIsLoading(false);
+            return;
+        }
 
         try {
             const reader = new FileReader();
@@ -142,6 +156,21 @@ const App = () => {
                 const dataUrl = event.target.result;
                 try {
                     const extractedText = await extractTextFromFile(dataUrl, (status) => setLoadingStatus(status));
+
+                    // Check if model returned a refusal or NO_TEXT_FOUND
+                    const refusals = [
+                        "nema teksta",
+                        "cannot read",
+                        "binary data",
+                        "optoičko prepoznavanje",
+                        "NO_TEXT_FOUND",
+                        "žao mi je",
+                        "nisam u mogućnosti"
+                    ];
+
+                    if (refusals.some(r => extractedText.toLowerCase().includes(r.toLowerCase())) || extractedText.length < 5) {
+                        throw new Error("MODEL_REFUSAL");
+                    }
 
                     // Regex for multiple tasks
                     const taskRegex = /ZADATAK\s*\d+\s*:([\s\S]*?)(?=ZADATAK\s*\d+\s*:|$)/gi;
@@ -162,20 +191,12 @@ const App = () => {
                         await handleSend(extractedText);
                     }
                 } catch (visionError) {
-                    console.error("Vision Processing Error:", visionError);
+                    console.error("Vision error:", visionError);
                     setManualMode(true);
-
-                    let errorMsg = "😅 Nisam uspeo da automatski pročitam sliku. Možeš mi prepisati tekst zadatka?";
-                    if (visionError.message === "PDF_NOT_SUPPORTED") {
-                        errorMsg = "📄 Nažalost, još uvek ne mogu sam da čitam PDF. Možeš li prepisati ili slikati zadatak?";
-                    } else if (visionError.message.includes("413")) {
-                        errorMsg = "📏 Slika je prevelika. Probaj da pošalješ manji fajl ili samo slikaj zadatak!";
-                    }
-
                     setMessages(prev => [...prev, {
                         id: Date.now(),
                         role: 'assistant',
-                        content: errorMsg
+                        content: "😅 Nisam uspeo da pročitam ovu sliku (možda je mutna ili je model preopterećen). Možeš li mi prepisati tekst zadatka?"
                     }]);
                 } finally {
                     setIsLoading(false);
@@ -629,10 +650,7 @@ const App = () => {
                     <div style={{ flex: 1, position: 'relative' }}>
                         <textarea
                             value={inputValue}
-                            onChange={(e) => {
-                                setInputValue(e.target.value);
-                                if (manualMode) setManualMode(false);
-                            }}
+                            onChange={(e) => setInputValue(e.target.value)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();

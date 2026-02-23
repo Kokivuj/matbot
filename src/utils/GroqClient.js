@@ -17,8 +17,8 @@ export const chatWithGroq = async (messages, model = MODELS.text_chat) => {
             body: JSON.stringify({
                 model,
                 messages,
-                temperature: 0.7,
-                max_tokens: 1024
+                temperature: 0.2, // Lower temperature for more consistent text extraction
+                max_tokens: 2048
             })
         });
 
@@ -32,27 +32,21 @@ export const chatWithGroq = async (messages, model = MODELS.text_chat) => {
 };
 
 export const extractTextFromFile = async (dataUrl, onProgress) => {
-    // Check if it's a PDF (very basic check)
-    if (dataUrl.startsWith("data:application/pdf")) {
-        onProgress("⚠️ PDF format trenutno nije podržan za automatsko čitanje.");
-        throw new Error("PDF_NOT_SUPPORTED");
-    }
-
     // Level 1: Primary Vision Model
-    onProgress("🔍 Analiziram sliku...");
+    onProgress("🔍 Analiziram sliku (model 1)...");
     try {
         const res = await visionRequest(dataUrl, MODELS.primary_vision);
         return res;
     } catch (e) {
-        console.warn("Level 1 failed, trying Level 2...", e);
+        console.warn("Level 1 failed, trying Level 2...");
 
         // Level 2: Fallback Vision Model
-        onProgress("🔄 Pokušavam ponovo sa drugim modelom...");
+        onProgress("🔄 Prelazim na rezervni model...");
         try {
             const res = await visionRequest(dataUrl, MODELS.fallback_vision);
             return res;
         } catch (e2) {
-            console.error("Level 2 failed", e2);
+            console.error("Level 2 failed");
             // Level 3 is manual mode handled in UI
             throw new Error("VISION_FAILED");
         }
@@ -60,7 +54,6 @@ export const extractTextFromFile = async (dataUrl, onProgress) => {
 };
 
 const visionRequest = async (dataUrl, model) => {
-    console.log(`Sending Vision request to model: ${model}`);
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -71,32 +64,29 @@ const visionRequest = async (dataUrl, model) => {
             model,
             messages: [
                 {
+                    role: "system",
+                    content: "Ti si ekspert za optičko prepoznavanje teksta (OCR). Tvoj zadatak je da precizno prepišeš sav tekst sa slike, posebno matematičke formule i zadatke. Ne objašnjavaj šta vidiš, samo prepiši tekst. Ako ne vidiš tekst, odgovori sa 'NO_TEXT_FOUND'."
+                },
+                {
                     role: "user",
                     content: [
                         {
                             type: "text",
-                            text: "Ti si ekspert za OCR i matematiku. Pažljivo pročitaj SVE matematičke zadatke sa ove slike. " +
-                                "Prepiši ih tačno onako kako pišu, reč po reč. " +
-                                "Ako ima više zadataka, obavezno ih odvoj sa 'ZADATAK [broj]:'. " +
-                                "Ako je slika mutna, daj sve od sebe da prepoznaš bar delove teksta."
+                            text: "TRANSKRIBUJ SLIKU: Prepiši bukvalno svaki tekst, broj i matematički simbol koji vidiš na ovoj slici. Ako ima više zadataka, odvoj ih sa 'ZADATAK [broj]:'. Fokusiraj se na matematičku preciznost."
                         },
                         { type: "image_url", image_url: { url: dataUrl } }
                     ]
                 }
             ],
-            temperature: 0,
+            temperature: 0.1,
             max_tokens: 2048
         })
     });
 
     if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        console.error("Vision Request API Error:", {
-            status: response.status,
-            statusText: response.statusText,
-            error: errData
-        });
-        throw new Error(`Vision Request Failed: ${response.status}`);
+        console.error("Vision Request Error:", errData);
+        throw new Error("Vision Request Failed");
     }
     const data = await response.json();
     return data.choices[0].message.content;
